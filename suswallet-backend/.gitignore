@@ -27,6 +27,6 @@ Homestead.yaml
 Thumbs.db
 
 
-/storage
+/database/*.sqlite*
 AGENTS.md
 /docs
