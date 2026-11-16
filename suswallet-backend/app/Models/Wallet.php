@@ -2,9 +2,13 @@
 
 namespace App\Models;
 
-use App\Support\Money;
+use App\Enums\VendorCode;
+use App\Http\Resources\WalletResource;
+use Database\Factories\WalletFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -17,7 +21,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class Wallet extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<WalletFactory> */
+    use HasFactory, HasUuids;
+
+    public const CURRENCY_TRY = 'TRY';
+
+    public const DEFAULT_BALANCE = '0.00';
+
+    /**
+     * @return array{is_main: bool, balance: string, currency: string}
+     */
+    public static function defaultAttributes(bool $isMain = false, string $balance = self::DEFAULT_BALANCE): array
+    {
+        return [
+            'is_main' => $isMain,
+            'balance' => $balance,
+            'currency' => self::CURRENCY_TRY,
+        ];
+    }
 
     /**
      * @return array<string, string>
@@ -28,6 +49,23 @@ class Wallet extends Model
             'is_main' => 'boolean',
             'balance' => 'decimal:2',
         ];
+    }
+
+    public function scopeMain(Builder $query): Builder
+    {
+        return $query->where('is_main', true);
+    }
+
+    public function scopeService(Builder $query): Builder
+    {
+        return $query->where('is_main', false);
+    }
+
+    public function scopeForVendorCode(Builder $query, VendorCode|string $vendorCode): Builder
+    {
+        $code = $vendorCode instanceof VendorCode ? $vendorCode->value : $vendorCode;
+
+        return $query->whereHas('vendor', static fn (Builder $q) => $q->where('code', $code));
     }
 
     public function user(): BelongsTo
@@ -41,27 +79,25 @@ class Wallet extends Model
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{
+     *     id: string,
+     *     is_main: bool,
+     *     balance: string,
+     *     balance_formatted: string,
+     *     currency: string,
+     *     vendor: ?array{
+     *         id: string,
+     *         code: string,
+     *         name: string,
+     *         category: string,
+     *         default_tap_price: string,
+     *         default_tap_price_formatted: string,
+     *         icon_name: string
+     *     }
+     * }
      */
     public function toApiArray(): array
     {
-        $balance = Money::normalize((string) $this->balance);
-
-        return [
-            'id' => $this->id,
-            'is_main' => $this->is_main,
-            'balance' => $balance,
-            'balance_formatted' => Money::formatTry($balance),
-            'currency' => $this->currency,
-            'vendor' => $this->vendor ? [
-                'id' => $this->vendor->id,
-                'code' => $this->vendor->code,
-                'name' => $this->vendor->name,
-                'category' => $this->vendor->category,
-                'default_tap_price' => Money::normalize((string) $this->vendor->default_tap_price),
-                'default_tap_price_formatted' => Money::formatTry((string) $this->vendor->default_tap_price),
-                'icon_name' => $this->vendor->icon_name,
-            ] : null,
-        ];
+        return (new WalletResource($this))->resolve();
     }
 }

@@ -2,16 +2,20 @@
 
 namespace App\Models;
 
+use App\Http\Resources\UserProfileResource;
 use App\Services\WalletService;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable([
@@ -50,6 +54,11 @@ class User extends Authenticatable
         });
     }
 
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('is_active', true);
+    }
+
     public function wallets(): HasMany
     {
         return $this->hasMany(Wallet::class);
@@ -57,12 +66,12 @@ class User extends Authenticatable
 
     public function mainWallet(): HasOne
     {
-        return $this->hasOne(Wallet::class)->where('is_main', true);
+        return $this->hasOne(Wallet::class)->main();
     }
 
     public function serviceWallets(): HasMany
     {
-        return $this->hasMany(Wallet::class)->where('is_main', false)->with('vendor');
+        return $this->hasMany(Wallet::class)->service()->with('vendor');
     }
 
     public function transactions(): HasMany
@@ -120,23 +129,74 @@ class User extends Authenticatable
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{
+     *     id: string,
+     *     student_id: string,
+     *     su_username: string,
+     *     email: string,
+     *     full_name: string,
+     *     initials: string,
+     *     phone: ?string,
+     *     masked_phone: ?string,
+     *     avatar_path: ?string,
+     *     avatar_url: ?string,
+     *     is_active: bool,
+     *     sucard_status: string
+     * }
      */
+    public function revokeOtherTokens(): void
+    {
+        $currentToken = $this->currentAccessToken();
+
+        if ($currentToken && isset($currentToken->id)) {
+            $this->tokens()->where('id', '!=', $currentToken->id)->delete();
+        } else {
+            $this->tokens()->delete();
+        }
+    }
+
+    /**
+     * @return array{avatar_path?: ?string}
+     */
+    public function resolveUpdatedAvatarPath(
+        ?UploadedFile $avatarFile,
+        bool $hasAvatarPathInput,
+        ?string $avatarPathInput
+    ): array {
+        if ($avatarFile !== null) {
+            $this->deleteStoredAvatar($this->avatar_path);
+            $storedPath = $avatarFile->store('avatars', 'public');
+
+            return ['avatar_path' => '/storage/'.$storedPath];
+        }
+
+        if ($hasAvatarPathInput) {
+            if ($avatarPathInput !== $this->avatar_path) {
+                $this->deleteStoredAvatar($this->avatar_path);
+            }
+
+            return ['avatar_path' => $avatarPathInput];
+        }
+
+        return [];
+    }
+
+    private function deleteStoredAvatar(?string $avatarPath): void
+    {
+        if ($avatarPath && str_starts_with($avatarPath, '/storage/avatars/')) {
+            $stillReferenced = self::where('id', '!=', $this->id)
+                ->where('avatar_path', $avatarPath)
+                ->exists();
+
+            if (! $stillReferenced) {
+                $oldRelative = substr($avatarPath, strlen('/storage/'));
+                Storage::disk('public')->delete($oldRelative);
+            }
+        }
+    }
+
     public function toProfileArray(): array
     {
-        return [
-            'id' => $this->id,
-            'student_id' => $this->student_id,
-            'su_username' => $this->su_username,
-            'email' => $this->email,
-            'full_name' => $this->full_name,
-            'initials' => $this->initials(),
-            'phone' => $this->phone,
-            'masked_phone' => $this->maskedPhone(),
-            'avatar_path' => $this->avatar_path,
-            'avatar_url' => $this->avatarUrl(),
-            'is_active' => $this->is_active,
-            'sucard_status' => $this->is_active ? 'Active' : 'Inactive',
-        ];
+        return (new UserProfileResource($this))->resolve();
     }
 }

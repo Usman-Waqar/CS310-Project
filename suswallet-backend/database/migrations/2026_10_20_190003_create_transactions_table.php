@@ -25,10 +25,10 @@ return new class extends Migration
             $table->json('metadata')->nullable();
             $table->timestamps();
 
-            $table->index(['initiated_by_user_id', 'created_at']);
-            $table->index(['source_wallet_id', 'created_at']);
-            $table->index(['destination_wallet_id', 'created_at']);
-            $table->index(['initiated_by_user_id', 'type', 'is_refunded']);
+            $table->index(['initiated_by_user_id', 'created_at', 'id']);
+            $table->index(['source_wallet_id', 'created_at', 'id']);
+            $table->index(['destination_wallet_id', 'created_at', 'id']);
+            $table->index(['initiated_by_user_id', 'type', 'is_refunded', 'created_at', 'id']);
         });
     }
 

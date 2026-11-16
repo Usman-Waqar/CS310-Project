@@ -4,39 +4,29 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class WalletController extends Controller
 {
+    public function __construct(private readonly WalletService $walletService) {}
+
     public function index(Request $request): JsonResponse
     {
         return response()->json([
-            'data' => self::buildWalletPayload($request->user()),
+            'data' => $this->walletService->buildWalletPayload($request->user()),
         ]);
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{
+     *     main_wallet: ?array<string, mixed>,
+     *     service_wallets: list<array<string, mixed>>
+     * }
      */
     public static function buildWalletPayload(User $user): array
     {
-        $mainWallet = $user->mainWallet()->first();
-        $serviceWallets = $user->serviceWallets()
-            ->get()
-            ->sortBy(function ($wallet): int {
-                return match ($wallet->vendor?->code) {
-                    'SHUTTLE' => 1,
-                    'CAFETERIA' => 2,
-                    'PRINTING' => 3,
-                    default => 99,
-                };
-            })
-            ->values();
-
-        return [
-            'main_wallet' => $mainWallet?->toApiArray(),
-            'service_wallets' => $serviceWallets->map(fn ($wallet) => $wallet->toApiArray())->all(),
-        ];
+        return app(WalletService::class)->buildWalletPayload($user);
     }
 }

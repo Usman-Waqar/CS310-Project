@@ -2,8 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\VendorCode;
+use App\Services\WalletService;
+use Database\Factories\VendorFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -17,7 +22,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class Vendor extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<VendorFactory> */
+    use HasFactory, HasUuids;
 
     /**
      * @return array<string, string>
@@ -25,6 +31,7 @@ class Vendor extends Model
     protected function casts(): array
     {
         return [
+            'code' => VendorCode::class,
             'default_tap_price' => 'decimal:2',
             'is_active' => 'boolean',
         ];
@@ -37,13 +44,46 @@ class Vendor extends Model
                 return;
             }
 
-            foreach (User::pluck('id') as $userId) {
-                Wallet::firstOrCreate(
-                    ['user_id' => $userId, 'vendor_id' => $vendor->id],
-                    ['is_main' => false, 'balance' => '0.00', 'currency' => 'TRY']
-                );
-            }
+            app(WalletService::class)->provisionServiceWalletsForVendor($vendor);
         });
+    }
+
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('is_active', true);
+    }
+
+    public static function seedDefaults(): void
+    {
+        foreach (VendorCode::seedAll() as $vendorData) {
+            self::updateOrCreate(['code' => $vendorData['code']], $vendorData);
+        }
+    }
+
+    public function codeValue(): string
+    {
+        return $this->code instanceof VendorCode ? $this->code->value : (string) $this->code;
+    }
+
+    public function sortOrder(): int
+    {
+        if ($this->code instanceof VendorCode) {
+            return $this->code->sortOrder();
+        }
+
+        return is_string($this->code)
+            ? (VendorCode::tryFrom($this->code)?->sortOrder() ?? 99)
+            : 99;
+    }
+
+    public function defaultTapTitle(): string
+    {
+        if ($this->code instanceof VendorCode) {
+            return $this->code->defaultTapTitle();
+        }
+
+        return (is_string($this->code) ? VendorCode::tryFrom($this->code)?->defaultTapTitle() : null)
+            ?? $this->name.' tap';
     }
 
     public function wallets(): HasMany

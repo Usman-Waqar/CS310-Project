@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\ErrorCode;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,10 +16,7 @@ class EnsureActiveStudent
         if ($user && ! $user->is_active) {
             $user->currentAccessToken()?->delete();
 
-            return response()->json([
-                'error_code' => 'ACCOUNT_INACTIVE',
-                'message' => 'Your SUCard account is currently inactive.',
-            ], 403);
+            return ErrorCode::AccountInactive->toResponse();
         }
 
         return $next($request);

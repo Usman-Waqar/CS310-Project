@@ -8,6 +8,7 @@ use App\Models\Vendor;
 use App\Services\WalletService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -15,36 +16,7 @@ class DatabaseSeeder extends Seeder
 {
     public function run(WalletService $walletService): void
     {
-        $vendors = [
-            [
-                'code' => 'SHUTTLE',
-                'name' => 'Shuttle',
-                'category' => 'TRANSPORT',
-                'default_tap_price' => '21.50',
-                'icon_name' => 'directions_bus',
-                'is_active' => true,
-            ],
-            [
-                'code' => 'CAFETERIA',
-                'name' => 'Cafeteria',
-                'category' => 'DINING',
-                'default_tap_price' => '96.00',
-                'icon_name' => 'restaurant',
-                'is_active' => true,
-            ],
-            [
-                'code' => 'PRINTING',
-                'name' => 'Printing',
-                'category' => 'PRINT',
-                'default_tap_price' => '8.00',
-                'icon_name' => 'print',
-                'is_active' => true,
-            ],
-        ];
-
-        foreach ($vendors as $vendorData) {
-            Vendor::updateOrCreate(['code' => $vendorData['code']], $vendorData);
-        }
+        Vendor::seedDefaults();
 
         $defaultPassword = Hash::make('password123');
 
@@ -88,7 +60,9 @@ class DatabaseSeeder extends Seeder
                 ])
             );
 
-            $walletService->provisionUserWallets($user);
+            if (! $user->wasRecentlyCreated) {
+                $walletService->provisionUserWallets($user);
+            }
 
             if ($user->email === 'student@sabanciuniv.edu' && $user->transactions()->count() === 0) {
                 $this->seedDemoTransactions($walletService, $user);
@@ -123,22 +97,28 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        $stamp = static function (Transaction $tx, CarbonInterface $at): void {
-            $tx->timestamps = false;
-            $tx->created_at = $at;
-            $tx->updated_at = $at;
-            $tx->save();
+        $at = static function (CarbonInterface $timestamp, callable $callback): Transaction {
+            Carbon::setTestNow($timestamp);
+
+            try {
+                /** @var array{transaction: Transaction, replayed: bool} $result */
+                $result = $callback();
+
+                return $result['transaction'];
+            } finally {
+                Carbon::setTestNow();
+            }
         };
 
-        $stamp($walletService->deposit($user, '1241.00', 'seed-deposit-1-'.Str::uuid())['transaction'], $timestamps[0]);
-        $stamp($walletService->deposit($user, '500.00', 'seed-deposit-2-'.Str::uuid())['transaction'], $timestamps[1]);
-        $stamp($walletService->allocate($user, 'SHUTTLE', null, '107.00', 'seed-alloc-shuttle-'.Str::uuid())['transaction'], $timestamps[2]);
-        $stamp($walletService->allocate($user, 'CAFETERIA', null, '336.00', 'seed-alloc-cafeteria-'.Str::uuid())['transaction'], $timestamps[3]);
-        $stamp($walletService->allocate($user, 'PRINTING', null, '48.00', 'seed-alloc-printing-'.Str::uuid())['transaction'], $timestamps[4]);
-        $stamp($walletService->simulateTap($user, 'PRINTING', '8.00', 'seed-tap-print-1-'.Str::uuid(), 'Print job')['transaction'], $timestamps[5]);
-        $stamp($walletService->simulateTap($user, 'PRINTING', '4.00', 'seed-tap-print-2-'.Str::uuid(), 'Failed print job')['transaction'], $timestamps[6]);
-        $stamp($walletService->refundLastTap($user, 'seed-refund-print-'.Str::uuid(), 'PRINTING')['transaction'], $timestamps[7]);
-        $stamp($walletService->simulateTap($user, 'CAFETERIA', '96.00', 'seed-tap-cafe-'.Str::uuid(), 'Cafeteria')['transaction'], $timestamps[8]);
-        $stamp($walletService->simulateTap($user, 'SHUTTLE', '21.50', 'seed-tap-shuttle-'.Str::uuid(), 'Shuttle fare')['transaction'], $timestamps[9]);
+        $at($timestamps[0], fn () => $walletService->deposit($user, '1241.00', 'seed-deposit-1-'.Str::uuid()));
+        $at($timestamps[1], fn () => $walletService->deposit($user, '500.00', 'seed-deposit-2-'.Str::uuid()));
+        $at($timestamps[2], fn () => $walletService->allocate($user, 'SHUTTLE', null, '107.00', 'seed-alloc-shuttle-'.Str::uuid()));
+        $at($timestamps[3], fn () => $walletService->allocate($user, 'CAFETERIA', null, '336.00', 'seed-alloc-cafeteria-'.Str::uuid()));
+        $at($timestamps[4], fn () => $walletService->allocate($user, 'PRINTING', null, '48.00', 'seed-alloc-printing-'.Str::uuid()));
+        $at($timestamps[5], fn () => $walletService->simulateTap($user, 'PRINTING', '8.00', 'seed-tap-print-1-'.Str::uuid(), 'Print job'));
+        $at($timestamps[6], fn () => $walletService->simulateTap($user, 'PRINTING', '4.00', 'seed-tap-print-2-'.Str::uuid(), 'Failed print job'));
+        $at($timestamps[7], fn () => $walletService->refundLastTap($user, 'seed-refund-print-'.Str::uuid(), 'PRINTING'));
+        $at($timestamps[8], fn () => $walletService->simulateTap($user, 'CAFETERIA', '96.00', 'seed-tap-cafe-'.Str::uuid(), 'Cafeteria'));
+        $at($timestamps[9], fn () => $walletService->simulateTap($user, 'SHUTTLE', '21.50', 'seed-tap-shuttle-'.Str::uuid(), 'Shuttle fare'));
     }
 }

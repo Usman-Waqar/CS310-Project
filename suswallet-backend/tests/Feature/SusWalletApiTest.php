@@ -2,6 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Enums\TransactionStatus;
+use App\Enums\TransactionType;
+use App\Enums\VendorCode;
+use App\Http\Controllers\Api\WalletController;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\Wallet;
@@ -10,6 +15,7 @@ use Database\Seeders\DatabaseSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -25,32 +31,7 @@ class SusWalletApiTest extends TestCase
     {
         parent::setUp();
 
-        Vendor::create([
-            'code' => 'SHUTTLE',
-            'name' => 'Shuttle',
-            'category' => 'TRANSPORT',
-            'default_tap_price' => '21.50',
-            'icon_name' => 'directions_bus',
-            'is_active' => true,
-        ]);
-
-        Vendor::create([
-            'code' => 'CAFETERIA',
-            'name' => 'Cafeteria',
-            'category' => 'DINING',
-            'default_tap_price' => '96.00',
-            'icon_name' => 'restaurant',
-            'is_active' => true,
-        ]);
-
-        Vendor::create([
-            'code' => 'PRINTING',
-            'name' => 'Printing',
-            'category' => 'PRINT',
-            'default_tap_price' => '8.00',
-            'icon_name' => 'print',
-            'is_active' => true,
-        ]);
+        Vendor::seedDefaults();
 
         $this->student = User::factory()->create([
             'student_id' => '00031234',
@@ -60,8 +41,6 @@ class SusWalletApiTest extends TestCase
             'phone' => '+905321234512',
             'password' => Hash::make('password123'),
         ]);
-
-        app(WalletService::class)->provisionUserWallets($this->student);
     }
 
     public function test_student_can_login_fetch_me_and_logout_with_sabanci_email(): void
@@ -385,7 +364,6 @@ class SusWalletApiTest extends TestCase
     public function test_idempotency_key_conflict_between_different_users_returns_409(): void
     {
         $otherUser = User::factory()->create();
-        app(WalletService::class)->provisionUserWallets($otherUser);
 
         Sanctum::actingAs($this->student);
         $this->postJson('/api/v1/transactions/deposit', [
@@ -668,10 +646,202 @@ class SusWalletApiTest extends TestCase
             ->assertJsonCount(3, 'data.service_wallets')
             ->assertJsonPath('data.service_wallets.2.vendor.code', 'PRINTING');
 
+        // Deactivating a previously provisioned vendor hides its wallet from the wallets payload
+        $printingVendor->update(['is_active' => false]);
+
+        $this->getJson('/api/v1/wallets')
+            ->assertOk()
+            ->assertJsonCount(2, 'data.service_wallets');
+
+        $printingVendor->update(['is_active' => true]);
+
         $this->postJson('/api/v1/transactions/deposit', [
             'amount' => '50.00',
             'idempotency_key' => 'auto-provision-dep-1',
         ])->assertCreated()
             ->assertJsonPath('data.wallets.main_wallet.balance', '50.00');
+    }
+
+    public function test_models_cast_enums_and_factories_create_valid_records(): void
+    {
+        $shuttleVendor = Vendor::where('code', VendorCode::Shuttle)->firstOrFail();
+        $this->assertSame(VendorCode::Shuttle, $shuttleVendor->code);
+
+        $mainWallet = $this->student->wallets()->main()->firstOrFail();
+        $shuttleWallet = $this->student->wallets()
+            ->service()
+            ->where('vendor_id', $shuttleVendor->id)
+            ->with('vendor')
+            ->firstOrFail();
+
+        $depositTx = Transaction::factory()->deposit($mainWallet, '100.00')->create();
+        $allocTx = Transaction::factory()->allocation($mainWallet, $shuttleWallet, '50.00')->create();
+        $tapTx = Transaction::factory()->cardTap($shuttleWallet, '21.50')->create();
+        $refundTx = Transaction::factory()->refund($shuttleWallet, $tapTx)->create();
+
+        $this->assertSame(TransactionType::Deposit, $depositTx->type);
+        $this->assertSame(TransactionType::Allocation, $allocTx->type);
+        $this->assertSame(TransactionType::CardTap, $tapTx->type);
+        $this->assertSame(TransactionType::Refund, $refundTx->type);
+        $this->assertSame(TransactionStatus::Completed, $depositTx->status);
+
+        $this->assertSame(1, Transaction::where('initiated_by_user_id', $this->student->id)->unrefundedTaps()->count());
+        $this->assertSame(2, Transaction::where('initiated_by_user_id', $this->student->id)->touchingWallet($mainWallet->id)->count());
+
+        $factoryVendor = Vendor::factory()->cafeteria()->inactive()->make();
+        $this->assertSame(VendorCode::Cafeteria, $factoryVendor->code);
+        $this->assertFalse($factoryVendor->is_active);
+
+        $factoryWallet = Wallet::factory()->service($shuttleVendor)->make(['user_id' => $this->student->id]);
+        $this->assertFalse($factoryWallet->is_main);
+
+        $this->assertSame(
+            $shuttleWallet->id,
+            $this->student->wallets()->forVendorCode(VendorCode::Shuttle)->value('id')
+        );
+        $this->assertSame(
+            $shuttleWallet->id,
+            $this->student->wallets()->forVendorCode('SHUTTLE')->value('id')
+        );
+
+        $this->assertTrue($depositTx->matchesIdempotentPayload(
+            expectedType: TransactionType::Deposit,
+            expectedAmount: '100.00',
+            expectedSourceWalletId: null,
+            expectedDestinationWalletId: $mainWallet->id,
+        ));
+        $this->assertFalse($depositTx->matchesIdempotentPayload(
+            expectedType: TransactionType::Deposit,
+            expectedAmount: '99.00',
+            expectedSourceWalletId: null,
+            expectedDestinationWalletId: $mainWallet->id,
+        ));
+        $this->assertTrue($tapTx->matchesIdempotentPayload(
+            expectedType: TransactionType::CardTap,
+            expectedAmount: '21.50',
+            expectedSourceWalletId: $shuttleWallet->id,
+            expectedDestinationWalletId: null,
+            expectedDescription: 'Shuttle fare',
+        ));
+        $this->assertFalse($tapTx->matchesIdempotentPayload(
+            expectedType: TransactionType::CardTap,
+            expectedAmount: '21.50',
+            expectedSourceWalletId: $shuttleWallet->id,
+            expectedDestinationWalletId: null,
+            expectedDescription: 'Different description',
+        ));
+        $this->assertTrue($refundTx->matchesIdempotentPayload(
+            expectedType: TransactionType::Refund,
+            expectedVendorCode: 'SHUTTLE',
+        ));
+        $this->assertFalse($refundTx->matchesIdempotentPayload(
+            expectedType: TransactionType::Refund,
+            expectedVendorCode: null,
+        ));
+
+        // Backward-compatible model & controller wrappers match API Resource serialization
+        $this->assertSame($this->student->email, $this->student->toProfileArray()['email']);
+        $this->assertSame('SHUTTLE', $shuttleWallet->toApiArray()['vendor']['code']);
+        $this->assertSame('ALLOCATION', $allocTx->toApiArray()['type']);
+        $this->assertSame('+', $allocTx->toApiArray('SHUTTLE')['sign']);
+        $this->assertCount(3, WalletController::buildWalletPayload($this->student)['service_wallets']);
+    }
+
+    public function test_query_optimizations_for_wallet_payload_deposit_and_vendor_provisioning(): void
+    {
+        $walletService = app(WalletService::class);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $payload = $walletService->buildWalletPayload($this->student);
+        $walletQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertNotNull($payload['main_wallet']);
+        $this->assertCount(3, $payload['service_wallets']);
+        $this->assertCount(2, $walletQueries);
+
+        // Saving an active vendor whose service wallets already exist triggers zero wallet inserts
+        $shuttle = Vendor::where('code', VendorCode::Shuttle)->firstOrFail();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $shuttle->update(['default_tap_price' => '22.00']);
+        $vendorUpdateQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $walletInserts = array_filter(
+            $vendorUpdateQueries,
+            static fn (array $entry): bool => str_contains(strtolower($entry['query']), 'insert into "wallets"')
+                || str_contains(strtolower($entry['query']), 'insert into `wallets`')
+        );
+        $this->assertCount(0, $walletInserts);
+
+        $countWalletSelects = static fn (array $queries): int => count(array_filter(
+            $queries,
+            static fn (array $entry): bool => str_contains(strtolower($entry['query']), 'from "wallets"')
+                && str_starts_with(strtolower(trim($entry['query'])), 'select')
+        ));
+
+        // Deposit skips redundant pre-lock wallet SELECT and uses in-memory relation hydration
+        Sanctum::actingAs($this->student);
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->postJson('/api/v1/transactions/deposit', [
+            'amount' => '100.00',
+            'idempotency_key' => 'opt-dep-1',
+        ])->assertCreated();
+        $depositQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        // 1 lockMainWallet SELECT + 1 buildWalletPayload SELECT = 2 total SELECTs on wallets
+        $this->assertSame(2, $countWalletSelects($depositQueries));
+
+        // Allocate locks Main + Service wallets in a single FOR UPDATE SELECT (+ 1 buildWalletPayload SELECT = 2)
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->postJson('/api/v1/transactions/allocate', [
+            'vendor_code' => 'SHUTTLE',
+            'amount' => '50.00',
+            'idempotency_key' => 'opt-alloc-1',
+        ])->assertCreated();
+        $allocateQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertSame(2, $countWalletSelects($allocateQueries));
+
+        // Card tap locks Main + Service wallets in a single FOR UPDATE SELECT (+ 1 buildWalletPayload SELECT = 2)
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->postJson('/api/v1/transactions/tap', [
+            'vendor_code' => 'SHUTTLE',
+            'idempotency_key' => 'opt-tap-1',
+        ])->assertCreated();
+        $tapQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertSame(2, $countWalletSelects($tapQueries));
+
+        // User creation checks existing wallets once and directly inserts missing rows (1 SELECT on wallets)
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        User::factory()->create();
+        $userProvisionQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertSame(1, $countWalletSelects($userProvisionQueries));
+
+        // DatabaseSeeder inserts demo transactions with target timestamps via Carbon::setTestNow (0 transaction UPDATEs)
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->seed(DatabaseSeeder::class);
+        $seederQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $txUpdates = array_filter(
+            $seederQueries,
+            static fn (array $entry): bool => str_contains(strtolower($entry['query']), 'update "transactions"')
+                || str_contains(strtolower($entry['query']), 'update `transactions`')
+        );
+        $this->assertCount(0, $txUpdates);
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ErrorCode;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -24,10 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (AuthenticationException $e, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json([
-                    'error_code' => 'UNAUTHENTICATED',
-                    'message' => 'Unauthenticated.',
-                ], 401);
+                return ErrorCode::Unauthenticated->toResponse();
             }
 
             return null;
@@ -35,10 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json([
-                    'error_code' => 'RATE_LIMIT_EXCEEDED',
-                    'message' => 'Too many attempts. Please try again later.',
-                ], 429, $e->getHeaders());
+                return ErrorCode::RateLimitExceeded->toResponse(headers: $e->getHeaders());
             }
 
             return null;
