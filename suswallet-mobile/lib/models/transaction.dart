@@ -104,3 +104,75 @@ class LedgerResult {
     );
   }
 }
+
+/// Monthly deposited & spent totals returned by `GET /api/v1/transactions`.
+class MonthlySummary {
+  const MonthlySummary({
+    required this.depositedThisMonth,
+    required this.depositedThisMonthFormatted,
+    required this.spentThisMonth,
+    required this.spentThisMonthFormatted,
+  });
+
+  const MonthlySummary.empty()
+      : depositedThisMonth = 0,
+        depositedThisMonthFormatted = '+₺0,00',
+        spentThisMonth = 0,
+        spentThisMonthFormatted = '-₺0,00';
+
+  final int depositedThisMonth;
+  final String depositedThisMonthFormatted;
+  final int spentThisMonth;
+  final String spentThisMonthFormatted;
+
+  factory MonthlySummary.fromJson(Map<String, dynamic> json) {
+    final deposited = Money.parseApi(json['deposited_this_month']);
+    final spent = Money.parseApi(json['spent_this_month']);
+    return MonthlySummary(
+      depositedThisMonth: deposited,
+      depositedThisMonthFormatted: (json['deposited_this_month_formatted'] ??
+          Money.format(deposited, sign: '+'))
+          .toString(),
+      spentThisMonth: spent,
+      spentThisMonthFormatted:
+      (json['spent_this_month_formatted'] ?? Money.format(spent, sign: '-'))
+          .toString(),
+    );
+  }
+}
+
+/// Full payload of `GET /api/v1/transactions?wallet=...`.
+class TransactionListData {
+  const TransactionListData({
+    required this.filter,
+    required this.summary,
+    required this.transactions,
+  });
+
+  const TransactionListData.empty()
+      : filter = 'ALL',
+        summary = const MonthlySummary.empty(),
+        transactions = const [];
+
+  final String filter;
+  final MonthlySummary summary;
+  final List<LedgerTransaction> transactions;
+
+  factory TransactionListData.fromJson(Map<String, dynamic> json) {
+    final summaryRaw = json['summary'];
+    final items = json['transactions'];
+    return TransactionListData(
+      filter: (json['filter'] ?? 'ALL').toString(),
+      summary: summaryRaw is Map
+          ? MonthlySummary.fromJson(Map<String, dynamic>.from(summaryRaw))
+          : const MonthlySummary.empty(),
+      transactions: items is List
+          ? items
+          .whereType()
+          .map((item) =>
+          LedgerTransaction.fromJson(Map<String, dynamic>.from(item)))
+          .toList()
+          : const [],
+    );
+  }
+}

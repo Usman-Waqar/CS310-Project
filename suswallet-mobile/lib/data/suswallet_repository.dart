@@ -45,6 +45,10 @@ class SusWalletRepository {
   Future<UserProfile> me() async =>
       UserProfile.fromJson(_data(await _api.get('/auth/me')));
 
+  Future<void> logout() async {
+    await _api.post('/auth/logout');
+  }
+
   Future<String> resetPassword({
     required String email,
     required String studentId,
@@ -57,6 +61,30 @@ class SusWalletRepository {
       'password_confirmation': newPassword,
     });
     return (json['message'] ?? 'Password has been reset.').toString();
+  }
+  Future<String> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final json = await _api.put('/auth/password', data: {
+      'current_password': currentPassword,
+      'password': newPassword,
+      'password_confirmation': newPassword,
+    });
+    return (json['message'] ?? 'Password changed successfully.').toString();
+  }
+
+  // ------------------------------------------------------------- Profile --
+
+  Future<UserProfile> updateProfile({
+    required String fullName,
+    String? phone,
+  }) async {
+    final json = await _api.patch('/profile', data: {
+      'full_name': fullName.trim(),
+      'phone': (phone == null || phone.trim().isEmpty) ? null : phone.trim(),
+    });
+    return UserProfile.fromJson(_data(json));
   }
 
   // ------------------------------------------------------------- Wallets --
@@ -80,6 +108,15 @@ class SusWalletRepository {
                 LedgerTransaction.fromJson(Map<String, dynamic>.from(item)))
             .toList()
         : const [];
+  }
+
+  /// Monthly summary + filtered transaction history (`ALL`, `MAIN`, `SHUTTLE`,
+  /// `CAFETERIA`, `PRINTING`).
+  Future<TransactionListData> transactions({String wallet = 'ALL'}) async {
+    final data = _data(await _api.get('/transactions', query: {
+      'wallet': wallet,
+    }));
+    return TransactionListData.fromJson(data);
   }
 
   Future<LedgerResult> deposit({

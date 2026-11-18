@@ -70,4 +70,15 @@ class SessionController extends AsyncNotifier<UserProfile?> {
     _storage.clear();
     state = const AsyncData(null);
   }
+
+  Future<void> logout() async {
+    try {
+      await _repository.logout();
+    } catch (_) {
+      // Clear local session even if the server is unreachable.
+    }
+    await _storage.clear();
+    state = const AsyncData(null);
+  }
 }
+

@@ -5,6 +5,7 @@ import '../data/suswallet_repository.dart';
 import '../models/transaction.dart';
 import '../models/wallet.dart';
 import 'session_controller.dart';
+import 'transactions_provider.dart';
 
 /// Main Wallet + service wallets of the signed-in student.
 final walletsProvider = AsyncNotifierProvider<WalletsController, WalletBundle>(
@@ -66,6 +67,9 @@ class LedgerActions {
     final result = await action();
     _ref.read(walletsProvider.notifier).apply(result.wallets);
     _ref.invalidate(recentTransactionsProvider);
+    _ref.read(walletsProvider.notifier).apply(result.wallets);
+    _ref.invalidate(recentTransactionsProvider);
+    _ref.invalidate(transactionsListProvider);
     return result;
   }
 
@@ -77,5 +81,8 @@ class LedgerActions {
       _ref.read(walletsProvider.future),
       _ref.read(recentTransactionsProvider.future),
     ]).catchError((_) => const <Object>[]);
+    _ref.invalidate(walletsProvider);
+    _ref.invalidate(recentTransactionsProvider);
+    _ref.invalidate(transactionsListProvider);
   }
 }
