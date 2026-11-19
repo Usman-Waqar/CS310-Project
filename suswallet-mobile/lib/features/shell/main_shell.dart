@@ -5,11 +5,22 @@ import '../../core/theme/app_colors.dart';
 import '../../state/shell_tab.dart';
 import '../home/home_screen.dart';
 import '../services/services_screen.dart';
-import 'placeholder_tab.dart';
+import '../settings/about_suswallet_screen.dart';
+import '../settings/profile_screen.dart';
+import '../settings/settings_screen.dart';
+import '../settings/sucard_security_screen.dart';
+import '../settings/terms_conditions_screen.dart';
+import '../transactions/transactions_screen.dart';
 
 /// Hosts the four bottom-navigation tabs.
 class MainShell extends ConsumerWidget {
   const MainShell({super.key});
+
+  void _openPage(BuildContext context, Widget page) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => page),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -24,11 +35,19 @@ class MainShell extends ConsumerWidget {
       child: Scaffold(
         body: IndexedStack(
           index: tab.index,
-          children: const [
-            HomeScreen(),
-            ServicesScreen(),
-            PlaceholderTab(title: 'Transactions'),
-            PlaceholderTab(title: 'Settings'),
+          children: [
+            const HomeScreen(),
+            const ServicesScreen(),
+            const TransactionsScreen(),
+            SettingsScreen(
+              onOpenProfile: () => _openPage(context, const ProfileScreen()),
+              onOpenSecurity: () =>
+                  _openPage(context, const SUCardSecurityScreen()),
+              onOpenTerms: () =>
+                  _openPage(context, const TermsConditionsScreen()),
+              onOpenAbout: () =>
+                  _openPage(context, const AboutSusWalletScreen()),
+            ),
           ],
         ),
         bottomNavigationBar: _BottomBar(
