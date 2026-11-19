@@ -13,6 +13,7 @@ import '../../widgets/common.dart';
 import '../transfers/deposit_sheet.dart';
 import '../transfers/top_up_sheet.dart';
 import 'recent_transaction_tile.dart';
+import 'simulation_tools_card.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -151,6 +152,10 @@ class HomeScreen extends ConsumerWidget {
                 onRetry: () => ref.invalidate(walletsProvider),
               ),
             ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: SimulationToolsCard(),
+          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 24),
             child: _RecentTransactionsCard(),

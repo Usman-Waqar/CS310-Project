@@ -79,12 +79,18 @@ class AmountInputField extends StatefulWidget {
     required this.accent,
     this.autofocus = false,
     this.onChanged,
+    this.fontSize = 38,
+    this.verticalPadding = 20,
+    this.enabled = true,
   });
 
   final TextEditingController controller;
   final Color accent;
   final bool autofocus;
   final ValueChanged<String>? onChanged;
+  final double fontSize;
+  final double verticalPadding;
+  final bool enabled;
 
   @override
   State<AmountInputField> createState() => _AmountInputFieldState();
@@ -92,12 +98,6 @@ class AmountInputField extends StatefulWidget {
 
 class _AmountInputFieldState extends State<AmountInputField> {
   final _focusNode = FocusNode();
-
-  static const _amountStyle = TextStyle(
-    fontSize: 38,
-    fontWeight: FontWeight.w700,
-    color: AppColors.navy,
-  );
 
   @override
   void dispose() {
@@ -107,11 +107,20 @@ class _AmountInputFieldState extends State<AmountInputField> {
 
   @override
   Widget build(BuildContext context) {
+    final amountStyle = TextStyle(
+      fontSize: widget.fontSize,
+      fontWeight: FontWeight.w700,
+      color: AppColors.navy,
+    );
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _focusNode.requestFocus,
+      onTap: widget.enabled ? _focusNode.requestFocus : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        padding: EdgeInsets.symmetric(
+          vertical: widget.verticalPadding,
+          horizontal: 16,
+        ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: widget.accent, width: 1.8),
@@ -119,26 +128,25 @@ class _AmountInputFieldState extends State<AmountInputField> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('₺', style: _amountStyle),
+            Text('₺', style: amountStyle),
             Flexible(
               child: IntrinsicWidth(
                 child: TextField(
                   controller: widget.controller,
                   focusNode: _focusNode,
                   autofocus: widget.autofocus,
+                  enabled: widget.enabled,
                   onChanged: widget.onChanged,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [_AmountInputFormatter()],
                   cursorColor: widget.accent,
-                  style: _amountStyle,
+                  style: amountStyle,
                   // Override every themed border/fill: the outer container
                   // draws the accent border.
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: '0,00',
-                    hintStyle: TextStyle(
-                      fontSize: 38,
-                      fontWeight: FontWeight.w700,
+                    hintStyle: amountStyle.copyWith(
                       color: AppColors.textSubtle,
                     ),
                     filled: false,
@@ -147,6 +155,7 @@ class _AmountInputFieldState extends State<AmountInputField> {
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
                     hoverColor: Colors.transparent,
                   ),
                 ),

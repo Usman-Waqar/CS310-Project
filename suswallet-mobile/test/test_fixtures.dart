@@ -26,7 +26,11 @@ Map<String, dynamic> vendorJson(String code, String name, String price) => {
       'icon_name': 'store',
     };
 
-Map<String, dynamic> walletsJson({String main = '1250.00'}) => {
+Map<String, dynamic> walletsJson({
+  String main = '1250.00',
+  String shuttle = '85.50',
+}) =>
+    {
       'main_wallet': {
         'id': 'wallet-main',
         'is_main': true,
@@ -39,7 +43,7 @@ Map<String, dynamic> walletsJson({String main = '1250.00'}) => {
         {
           'id': 'wallet-shuttle',
           'is_main': false,
-          'balance': '85.50',
+          'balance': shuttle,
           'currency': 'TRY',
           'vendor': vendorJson('SHUTTLE', 'Shuttle', '21.50'),
         },

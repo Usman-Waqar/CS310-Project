@@ -34,8 +34,9 @@ final recentTransactionsProvider =
 
 final ledgerActionsProvider = Provider<LedgerActions>(LedgerActions.new);
 
-/// Money-moving operations used by the Deposit and Top up pop-ups. Each one
-/// applies the balances from the response and refreshes the recent list.
+/// Money-moving operations used by the Deposit and Top up pop-ups and the
+/// Home simulation tools. Each one applies the balances from the response and
+/// refreshes the transaction lists.
 class LedgerActions {
   LedgerActions(this._ref);
 
@@ -63,10 +64,24 @@ class LedgerActions {
             idempotencyKey: idempotencyKey,
           ));
 
+  /// Simulation tools: a virtual SUCard tap at [vendorCode].
+  Future<LedgerResult> tap(
+    String vendorCode,
+    int amount, {
+    required String idempotencyKey,
+  }) =>
+      _run(() => _repository.simulateTap(
+            vendorCode: vendorCode,
+            amount: amount,
+            idempotencyKey: idempotencyKey,
+          ));
+
+  /// Simulation tools: refunds the latest card tap.
+  Future<LedgerResult> refundLastTap({required String idempotencyKey}) =>
+      _run(() => _repository.refundLastTap(idempotencyKey: idempotencyKey));
+
   Future<LedgerResult> _run(Future<LedgerResult> Function() action) async {
     final result = await action();
-    _ref.read(walletsProvider.notifier).apply(result.wallets);
-    _ref.invalidate(recentTransactionsProvider);
     _ref.read(walletsProvider.notifier).apply(result.wallets);
     _ref.invalidate(recentTransactionsProvider);
     _ref.invalidate(transactionsListProvider);
@@ -77,12 +92,10 @@ class LedgerActions {
   Future<void> refreshAll() async {
     _ref.invalidate(walletsProvider);
     _ref.invalidate(recentTransactionsProvider);
+    _ref.invalidate(transactionsListProvider);
     await Future.wait<Object>([
       _ref.read(walletsProvider.future),
       _ref.read(recentTransactionsProvider.future),
     ]).catchError((_) => const <Object>[]);
-    _ref.invalidate(walletsProvider);
-    _ref.invalidate(recentTransactionsProvider);
-    _ref.invalidate(transactionsListProvider);
   }
 }

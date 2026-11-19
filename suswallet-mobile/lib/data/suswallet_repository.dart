@@ -143,6 +143,34 @@ class SusWalletRepository {
     return LedgerResult.fromJson(json);
   }
 
+  // ---------------------------------------------------------- Simulation --
+
+  /// Simulated SUCard tap: charges [amount] from the vendor's service wallet.
+  Future<LedgerResult> simulateTap({
+    required String vendorCode,
+    required int amount,
+    required String idempotencyKey,
+  }) async {
+    final json = await _api.post('/transactions/tap', data: {
+      'vendor_code': vendorCode,
+      'amount': Money.toApi(amount),
+      'idempotency_key': idempotencyKey,
+    });
+    return LedgerResult.fromJson(json);
+  }
+
+  /// Refunds the latest card tap (optionally limited to one vendor).
+  Future<LedgerResult> refundLastTap({
+    required String idempotencyKey,
+    String? vendorCode,
+  }) async {
+    final json = await _api.post('/transactions/refund-last-tap', data: {
+      'idempotency_key': idempotencyKey,
+      'vendor_code': ?vendorCode,
+    });
+    return LedgerResult.fromJson(json);
+  }
+
   // ------------------------------------------------------------- Helpers --
 
   static Map<String, dynamic> _data(Map<String, dynamic> json) =>

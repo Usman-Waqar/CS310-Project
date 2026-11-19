@@ -7,6 +7,7 @@ import 'package:suswallet_mobile/core/api/api_exception.dart';
 import 'package:suswallet_mobile/core/storage/session_storage.dart';
 import 'package:suswallet_mobile/data/suswallet_repository.dart';
 import 'package:suswallet_mobile/features/auth/login_screen.dart';
+import 'package:suswallet_mobile/features/home/simulation_tools_card.dart';
 import 'package:suswallet_mobile/models/transaction.dart';
 import 'package:suswallet_mobile/models/user_profile.dart';
 import 'package:suswallet_mobile/models/wallet.dart';
@@ -16,13 +17,22 @@ import 'test_fixtures.dart';
 /// In-memory stand-in for the Laravel API.
 class FakeRepository implements SusWalletRepository {
   int mainBalance = 125000;
+  int shuttleBalance = 8550;
   String fullName = 'Student Name';
   String? phone = '+905321234512';
   final deposits = <int>[];
   final allocations = <(String, int)>[];
+  final taps = <(String, int)>[];
+  int refunds = 0;
 
   WalletBundle get _wallets =>
-      WalletBundle.fromJson(walletsJson(main: _api(mainBalance)));
+      WalletBundle.fromJson(walletsJson(
+        main: _api(mainBalance),
+        shuttle: _api(shuttleBalance),
+      ));
+
+  Map<String, dynamic> _walletsJson() =>
+      walletsJson(main: _api(mainBalance), shuttle: _api(shuttleBalance));
 
   static String _api(int cents) =>
       '${cents ~/ 100}.${(cents % 100).toString().padLeft(2, '0')}';
@@ -131,7 +141,7 @@ class FakeRepository implements SusWalletRepository {
           vendor: 'MAIN',
           title: 'Card deposit',
         ),
-        'wallets': walletsJson(main: _api(mainBalance)),
+        'wallets': _walletsJson(),
       },
     });
   }
@@ -155,7 +165,59 @@ class FakeRepository implements SusWalletRepository {
           vendor: vendorCode,
           title: 'Allocated',
         ),
-        'wallets': walletsJson(main: _api(mainBalance)),
+        'wallets': _walletsJson(),
+      },
+    });
+  }
+
+  @override
+  Future<LedgerResult> simulateTap({
+    required String vendorCode,
+    required int amount,
+    required String idempotencyKey,
+  }) async {
+    if (amount > shuttleBalance) {
+      throw const ApiException(
+        message: 'Insufficient balance in the Shuttle wallet.',
+        statusCode: 422,
+        errorCode: 'INSUFFICIENT_FUNDS',
+      );
+    }
+    taps.add((vendorCode, amount));
+    shuttleBalance -= amount;
+    return LedgerResult.fromJson({
+      'message': 'Card tap completed.',
+      'idempotent_replay': false,
+      'data': {
+        'transaction': transactionJson(
+          amount: _api(amount),
+          vendor: vendorCode,
+        ),
+        'wallets': _walletsJson(),
+      },
+    });
+  }
+
+  @override
+  Future<LedgerResult> refundLastTap({
+    required String idempotencyKey,
+    String? vendorCode,
+  }) async {
+    final (vendor, amount) = taps.removeLast();
+    refunds++;
+    shuttleBalance += amount;
+    return LedgerResult.fromJson({
+      'message': 'Refund completed.',
+      'idempotent_replay': false,
+      'data': {
+        'transaction': transactionJson(
+          type: 'REFUND',
+          amount: _api(amount),
+          sign: '+',
+          vendor: vendor,
+          title: 'Refund',
+        ),
+        'wallets': _walletsJson(),
       },
     });
   }
@@ -342,4 +404,64 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Usman Khan'), findsOneWidget);
       });
+
+  testWidgets('Simulation tools: typed amount, ₺1 arrows, tap and refund',
+      (tester) async {
+    final repository =
+        await pumpApp(tester, prefs: {'suswallet.auth_token': 'saved-token'});
+
+    await tester.tap(find.text('Simulation tools'));
+    await tester.pumpAndSettle();
+
+    final amountField = find.descendant(
+      of: find.byType(SimulationToolsCard),
+      matching: find.byType(TextField),
+    );
+    String amountText() =>
+        tester.widget<TextField>(amountField).controller!.text;
+
+    // Starts at the Shuttle vendor's default fare.
+    expect(amountText(), '21,50');
+
+    // Arrows change the amount by ₺1.
+    await tester.ensureVisible(find.byTooltip('Increase by ₺1'));
+    await tester.tap(find.byTooltip('Increase by ₺1'));
+    await tester.pump();
+    expect(amountText(), '22,50');
+    await tester.tap(find.byTooltip('Decrease by ₺1'));
+    await tester.tap(find.byTooltip('Decrease by ₺1'));
+    await tester.pump();
+    expect(amountText(), '20,50');
+
+    // Only numbers are accepted when typing.
+    await tester.enterText(amountField, '12a');
+    await tester.pump();
+    expect(amountText(), '20,50');
+
+    // Over the backend limit: inline error and Tap card disabled.
+    await tester.enterText(amountField, '6000');
+    await tester.pump();
+    expect(find.text('A single tap can be at most ₺5.000.'), findsOneWidget);
+    final tapButton = find.widgetWithText(FilledButton, 'Tap card');
+    expect(tester.widget<FilledButton>(tapButton).onPressed, isNull);
+
+    // Any typed amount can be charged; arrows continue from it.
+    await tester.enterText(amountField, '37,25');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Increase by ₺1'));
+    await tester.pump();
+    expect(amountText(), '38,25');
+
+    await tester.ensureVisible(tapButton);
+    await tester.tap(tapButton);
+    await tester.pumpAndSettle();
+    expect(repository.taps, [('SHUTTLE', 3825)]);
+    expect(find.text('₺47,25'), findsWidgets); // 85,50 - 38,25
+
+    await tester.ensureVisible(find.text('Refund last tap'));
+    await tester.tap(find.text('Refund last tap'));
+    await tester.pumpAndSettle();
+    expect(repository.refunds, 1);
+    expect(find.text('₺85,50'), findsWidgets);
+  });
 }
