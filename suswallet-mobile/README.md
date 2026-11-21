@@ -2,22 +2,24 @@
 
 Flutter client for the SUSWallet Laravel API in `../suswallet-backend`.
 
-## Status
+## Requirements
 
-| Screen (Step 2.1 wireframes) | Status | API |
+- **Flutter 3.47.6** (stable channel, Dart 3.13.5). Check with `flutter --version`.
+- Android SDK with **NDK 28.2.13676358**
+  (Android Studio → Settings → Languages & Frameworks → Android SDK → SDK Tools → NDK (Side by side)).
+- PHP 8.4+ and Composer, to run the backend locally.
+
+## Screens
+
+| Screen | Where | API |
 | :--- | :--- | :--- |
-| Login, Forgot password | Done | `POST /auth/login`, `POST /auth/forgot-password` |
-| Home (header, balances, service tiles, recent transactions) | Done | `GET /auth/me`, `GET /wallets`, `GET /transactions?limit=3` |
-| Services | Done | `GET /wallets` |
-| Deposit pop-up, Top up pop-up | Done | `POST /transactions/deposit`, `POST /transactions/allocate` |
-| Home → Simulation tools | To do | `POST /transactions/tap`, `POST /transactions/refund-last-tap` |
-| Transactions | To do (empty tab) | `GET /transactions?wallet=…` |
-| Settings, Profile, Edit profile, SUCard & Security, Log Out | To do (empty tab) | `GET /profile`, `PATCH /profile`, `PUT /auth/password`, `POST /auth/logout` |
-
-The Transactions and Settings tabs are wired into the bottom navigation as
-empty pages (`lib/features/shell/placeholder_tab.dart`); Home's "See all" opens
-the Transactions tab. Replace the `PlaceholderTab` entries in
-`lib/features/shell/main_shell.dart` with the real screens.
+| Login, Forgot password | `features/auth` | `POST /auth/login`, `POST /auth/forgot-password` |
+| Home (balances, service tiles, recent transactions) | `features/home` | `GET /auth/me`, `GET /wallets`, `GET /transactions?limit=3` |
+| Home → Simulation tools (card tap, refund last tap) | `features/home` | `POST /transactions/tap`, `POST /transactions/refund-last-tap` |
+| Deposit pop-up, Top up pop-up | `features/transfers` | `POST /transactions/deposit`, `POST /transactions/allocate` |
+| Services | `features/services` | `GET /wallets` |
+| Transactions (wallet filters, monthly summary, removable cards) | `features/transactions` | `GET /transactions?wallet=…` |
+| Settings, Profile, Edit profile, SUCard & Security, Change password, Terms, About, Log out | `features/settings` | `PATCH /profile`, `PUT /auth/password`, `POST /auth/logout` |
 
 ## Project structure
 
@@ -29,34 +31,47 @@ lib/
 │   ├── storage/               # SharedPreferences token + cached profile
 │   ├── theme/                 # Colours, Poppins theme, per-service styles
 │   └── utils/                 # Integer-kuruş Money helpers (₺1.250,00), time labels
-├── models/                    # UserProfile, Wallet/Vendor, LedgerTransaction
+├── models/                    # UserProfile, Wallet/Vendor, LedgerTransaction, summaries
 ├── data/                      # SusWalletRepository: one method per endpoint
-├── state/                     # Riverpod: session, wallets, recent list, ledger actions, tab
+├── state/                     # Riverpod: session, wallets, transactions, ledger actions, tab
 ├── widgets/                   # Shared cards, headers, form fields
-└── features/                  # auth, shell (bottom nav), home, services,
-                               # transfers (Deposit / Top up pop-ups)
+└── features/                  # auth, shell (bottom nav), home, services, transfers,
+                               # transactions, settings
+assets/images/                 # Local images (SUCard badge)
 ```
 
-Money is handled as integer kuruş on the client so previews never drift, and
-every deposit / top-up sends a UUID `idempotency_key`.
+Money is handled as integer kuruş on the client so amounts never drift, and
+every deposit, top-up and card tap sends a UUID `idempotency_key`.
 
 ## Running
 
-1. Start the backend (from `suswallet-backend/`):
+### 1. Backend (from `suswallet-backend/`)
 
-   ```powershell
-   php artisan migrate:fresh --seed --no-interaction
-   php artisan serve
-   ```
+```powershell
+composer install
+copy .env.example .env
+php artisan key:generate
+```
 
-   Demo account: `student@sabanciuniv.edu` / `password123`.
+For a quick local database, open `.env`, set `DB_CONNECTION=sqlite` and delete
+the `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD` lines. Then:
 
-2. Run the app (from `suswallet-mobile/`):
+```powershell
+New-Item database/database.sqlite
+php artisan migrate:fresh --seed --no-interaction
+php artisan serve
+```
 
-   ```powershell
-   flutter pub get
-   flutter run
-   ```
+Demo account: `student@sabanciuniv.edu` / `password123`.
+
+### 2. App (from `suswallet-mobile/`)
+
+Start an Android emulator, then:
+
+```powershell
+flutter pub get
+flutter run
+```
 
 The API base URL is picked automatically:
 
@@ -78,6 +93,6 @@ flutter analyze
 flutter test
 ```
 
-`test/app_flow_test.dart` drives Login → Home → Deposit, Services → Top up and
-the bottom navigation against an in-memory fake repository, so it needs no
-running backend.
+`test/app_flow_test.dart` drives Login → Home → Deposit, Services → Top up,
+Simulation tools, Transactions filters and remove, and Settings → Edit profile
+against an in-memory fake repository, so it needs no running backend.
